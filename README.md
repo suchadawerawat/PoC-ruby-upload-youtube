@@ -9,44 +9,44 @@ This project follows the principles of **Clean Architecture** to ensure a separa
 \`\`\`mermaid
 graph TD
     subgraph "Frameworks & Drivers (Outer Layer)"
-        A1[CLI (Thor)]
-        A2[Google API Client Gem]
-        A3[File System]
-        A4[Future: Rails UI]
-        A5[Future: Database Adapters (PG, MySQL)]
+        A1["CLI (Thor)"]
+        A2["Google API Client Gem"]
+        A3["File System"]
+        A4["Future: Rails UI"]
+        A5["Future: Database Adapters (PG, MySQL)"]
     end
 
     subgraph "Interface Adapters (Gateways & Controllers)"
-        B1[CLI Controller (app/cli)]
-        B2[YouTubeServiceGateway (app/gateways)]
-        B3[LogPersistenceGateway (app/gateways)]
+        B1["CLI Controller (app/cli)"]
+        B2["YouTubeServiceGateway (app/gateways)"]
+        B3["LogPersistenceGateway (app/gateways)"]
     end
 
     subgraph "Application Business Rules (Use Cases)"
-        C1[UploadVideoUseCase (app/use_cases)]
-        C2[LogUploadDetailsUseCase (app/use_cases)]
+        C1["UploadVideoUseCase (app/use_cases)"]
+        C2["LogUploadDetailsUseCase (app/use_cases)"]
     end
 
     subgraph "Enterprise Business Rules (Entities)"
-        D1[VideoDetails (app/entities)]
-        D2[UploadLogEntry (app/entities)]
+        D1["VideoDetails (app/entities)"]
+        D2["UploadLogEntry (app/entities)"]
     end
 
     %% Dependencies (Arrows point inwards)
     A1 --> B1
-    A2 -.-> B2 %% Gem is used by Gateway Impl
-    A3 -.-> B2 %% FS for video file
-    A3 -.-> B3 %% FS for log file (initially)
+    A2 -.-> B2
+    A3 -.-> B2
+    A3 -.-> B3
 
     B1 --> C1
     B1 --> C2
-    B2 --> C1 %% UseCase uses Gateway Interface
-    B3 --> C1 %% UseCase uses Gateway Interface
-    B3 --> C2 %% UseCase uses Gateway Interface
+    B2 --> C1
+    B3 --> C1
+    B3 --> C2
 
-    C1 --> D1 %% UseCase uses Entity
-    C1 --> D2 %% UseCase uses Entity (indirectly via LogUpload)
-    C2 --> D2 %% UseCase uses Entity
+    C1 --> D1
+    C1 --> D2
+    C2 --> D2
 
     %% Future dependencies
     A4 -.-> C1
