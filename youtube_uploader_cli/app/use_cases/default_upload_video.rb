@@ -25,46 +25,77 @@ module UseCases
     # @param video_details [Entities::VideoDetails] The details of the video to upload.
     # @return [Entities::UploadLogEntry] The log entry for the upload attempt.
     def execute(video_details:)
-      @logger.info("Starting video upload use case for: #{video_details.title}")
-      @logger.debug("Video details: #{video_details.inspect}")
+      @logger.info("Starting video upload use case for title: '#{video_details.title}'")
+      @logger.debug("Video details for upload: #{video_details.inspect}") # Matched prompt
 
-      upload_result = @youtube_gateway.upload_video(video_details: video_details)
-
-      log_entry = if upload_result && upload_result.id
-                    @logger.info("Video uploaded successfully. YouTube Video ID: #{upload_result.id}")
-                    youtube_url = "https://www.youtube.com/watch?v=#{upload_result.id}"
-                    Entities::UploadLogEntry.new(
-                      video_title: video_details.title,
-                      file_path: video_details.file_path,
-                      youtube_url: youtube_url,
-                      status: 'SUCCESS',
-                      details: upload_result.id, # Store Video ID in details
-                      upload_date: Time.now
-                    )
-                  else
-                    @logger.error("Video upload failed for: #{video_details.title}")
-                    Entities::UploadLogEntry.new(
-                      video_title: video_details.title,
-                      file_path: video_details.file_path,
-                      youtube_url: nil,
-                      status: 'FAILURE',
-                      details: 'Upload failed via YouTubeServiceGateway. Check gateway logs for more information.',
-                      upload_date: Time.now
-                    )
-                  end
-
-      @logger.debug("Constructed log entry: #{log_entry.to_h}")
+      upload_log_entry = nil
 
       begin
-        @log_gateway.save(log_entry)
-        @logger.info("Upload log entry saved successfully for: #{video_details.title}")
+        youtube_video_response = @youtube_gateway.upload_video(video_details: video_details)
+
+        video_id = youtube_video_response.id
+        youtube_url = "https://www.youtube.com/watch?v=#{video_id}"
+
+        @logger.info("Video uploaded successfully via gateway. YouTube Video ID: #{video_id}") # Matched prompt (using Video ID)
+
+        upload_log_entry = Entities::UploadLogEntry.new(
+          video_title: video_details.title,
+          upload_date: Time.now, # UploadLogEntry handles UTC conversion
+          status: 'SUCCESS',
+          details: video_id,
+          file_path: video_details.file_path,
+          youtube_url: youtube_url
+        )
+      rescue Gateways::AuthenticationError => e
+        @logger.error("Authentication error during upload for '#{video_details.title}': #{e.message}") # Matched prompt
+        upload_log_entry = create_failure_log_entry(video_details, e.message)
+      rescue Gateways::YouTubeUploadError => e
+        @logger.error("YouTube upload error for '#{video_details.title}': #{e.message}") # Matched prompt
+        upload_log_entry = create_failure_log_entry(video_details, e.message)
+      rescue ArgumentError => e # Catch ArgumentErrors from gateway (e.g. file not found) or VideoDetails
+        @logger.error("Argument error during upload for '#{video_details.title}': #{e.message}") # Matched prompt
+        upload_log_entry = create_failure_log_entry(video_details, e.message)
       rescue StandardError => e
-        @logger.error("Failed to save upload log entry for: #{video_details.title}. Error: #{e.message}")
-        # The use case should still return the log_entry so the primary operation's outcome is clear,
-        # even if logging the outcome failed.
+        @logger.error("Unexpected error during upload for '#{video_details.title}': #{e.class} - #{e.message}") # Matched prompt
+        @logger.debug("Unexpected error backtrace: #{e.backtrace.join("\n")}")
+        upload_log_entry = create_failure_log_entry(video_details, "Unexpected error: #{e.message}")
+      ensure
+        # Ensure log attempt happens even if an error occurs before upload_log_entry is set by try block
+        # (e.g. error within the rescue blocks themselves before assignment)
+        upload_log_entry ||= create_failure_log_entry(video_details, "Failed before log entry could be finalized")
+
+        persist_log_entry(upload_log_entry)
       end
 
-      log_entry # Return the log entry as the result of the use case
+      @logger.info("Finished video upload use case for: '#{video_details.title}'. Final Status: #{upload_log_entry&.status}")
+      upload_log_entry # Return the UploadLogEntry object
+    end
+
+    private
+
+    def create_failure_log_entry(video_details, error_message)
+      Entities::UploadLogEntry.new(
+        video_title: video_details.title,
+        upload_date: Time.now, # UploadLogEntry handles UTC conversion
+        status: 'FAILURE',
+        details: error_message, # Error message from gateway
+        file_path: video_details.file_path,
+        youtube_url: nil
+      )
+    end
+
+    def persist_log_entry(entry)
+      return unless entry # Should not happen with the ensure logic, but as a safeguard.
+
+      @logger.debug("Preparing to save log entry: #{entry.inspect}") # Changed from to_h to inspect
+      begin
+        @log_gateway.save(upload_log_entry: entry) # Pass with keyword argument
+        @logger.info("Upload log entry saved for video title: '#{entry.video_title}'")
+      rescue StandardError => e
+        @logger.error("Failed to save upload log entry for '#{entry.video_title}'. Error: #{e.message}")
+        @logger.debug("Log saving error backtrace: #{e.backtrace.join("\n")}")
+        # Do not let logging failure overshadow the primary operation's result.
+      end
     end
   end
 end

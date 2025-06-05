@@ -1,26 +1,39 @@
 require 'logger'
+require 'date' # Required for ISO8601 timestamp
 
 module AppLogger
-  def self.get_logger
-    logger = Logger.new(STDOUT)
-    logger.formatter = proc do |severity, datetime, _progname, msg|
-      "#{datetime.strftime('%Y-%m-%d %H:%M:%S')} [#{severity}] #{msg}\n"
-    end
-
-    log_level = ENV['YOUTUBE_UPLOADER_LOG_LEVEL']&.upcase
-    case log_level
-    when 'DEBUG'
-      logger.level = Logger::DEBUG
-    when 'INFO'
-      logger.level = Logger::INFO
-    when 'WARN'
-      logger.level = Logger::WARN
-    when 'ERROR'
-      logger.level = Logger::ERROR
-    else
-      logger.level = Logger::INFO
-    end
-
-    logger
+  class << self
+    attr_accessor :logger
   end
+
+  def self.initialize_logger
+    @logger = Logger.new(STDOUT)
+    @logger.level = get_log_level
+    @logger.formatter = proc do |severity, datetime, _progname, msg|
+      # Ensure datetime is a DateTime object for iso8601 method
+      dt = datetime.is_a?(DateTime) ? datetime : datetime.to_datetime
+      timestamp = dt.iso8601(3) # ISO8601 format with milliseconds
+      "[#{timestamp} #{severity}] #{msg}\n"
+    end
+    @logger
+  end
+
+  def self.get_log_level
+    level_str = ENV['YOUTUBE_UPLOADER_LOG_LEVEL']&.upcase
+    case level_str
+    when 'DEBUG'
+      Logger::DEBUG
+    when 'INFO'
+      Logger::INFO
+    when 'WARN'
+      Logger::WARN
+    when 'ERROR'
+      Logger::ERROR
+    else
+      Logger::INFO # Default level
+    end
+  end
+
+  # Initialize the logger when the module is loaded
+  initialize_logger unless @logger
 end

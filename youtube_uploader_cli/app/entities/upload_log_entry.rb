@@ -25,11 +25,20 @@ module Entities
       @status = status
       @details = details
 
+      # Ensure upload_date is UTC and in ISO8601 format if string, or defaults to Time.now.utc
       if upload_date.nil?
-        @upload_date = Time.now
+        @upload_date = Time.now.utc # Default to current time in UTC
       elsif upload_date.is_a?(String)
         begin
-          @upload_date = Time.iso8601(upload_date)
+          parsed_time = Time.iso8601(upload_date)
+          @upload_date = parsed_time.utc # Ensure it's UTC
+        rescue ArgumentError
+          raise ArgumentError, "Invalid upload_date string format. Please use ISO8601. Got: #{upload_date}"
+        end
+      elsif upload_date.is_a?(Time)
+        @upload_date = upload_date.utc # Ensure it's UTC
+      else
+        raise ArgumentError, "upload_date must be a Time object, an ISO8601 string, or nil. Got: #{upload_date.class}"
         rescue ArgumentError
           raise ArgumentError, "Invalid upload_date string format. Please use ISO8601. Got: #{upload_date}"
         end
