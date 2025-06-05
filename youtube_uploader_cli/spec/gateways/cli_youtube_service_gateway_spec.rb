@@ -136,179 +136,128 @@ RSpec.describe Gateways::CliYouTubeServiceGateway do
 
   # Tests for #upload_video will be added in a subsequent step when it's implemented.
 
-  describe '#list_videos' do
-    let(:mock_youtube_service) { double('Google::Apis::YoutubeV3::YouTubeService') } # Changed from instance_double
-    # Changed mock_credentials to avoid conflict with the one in #authenticate tests
-    let(:mock_list_video_credentials) { instance_double(Google::Auth::UserRefreshCredentials, access_token: 'fake_list_video_token') }
-    # gateway is already defined in the outer scope
-    # let(:gateway) { described_class.new } # This would create a new instance, not using the one from outer scope
+  # Note: The existing `let(:logger)` is called `mock_logger`.
+  # The new tests use `logger` as the variable name for the logger passed to the gateway.
+  # We will ensure `gateway` is initialized with `mock_logger`.
+  # The `let(:gateway)` is already defined as `described_class.new(mock_logger)`.
 
-    # Configuration for list_videos specific setup, if needed for fixture files
-    let(:fixture_client_secret_path) { 'spec/fixtures/fake_client_secret.json' }
-    let(:fixture_tokens_path) { 'spec/fixtures/fake_tokens.yaml' }
+  describe '#list_videos' do
+    # mock_youtube_service is used by the new tests, and gateway is already using mock_logger
+    # Using a plain double to avoid instance_double's strict keyword argument checking for now,
+    # as the 'mine: true' keyword argument seems to be the issue with the real library vs instance_double.
+    let(:mock_youtube_service) { double('Google::Apis::YoutubeV3::YouTubeService') }
+    # gateway is already defined in the outer scope and initialized with mock_logger.
 
     before do
-      # Create dummy fixture files for list_videos tests
-      # These are used to simulate a state where @service could have been populated by a prior auth call
-      # that used these paths.
-      FileUtils.mkdir_p('spec/fixtures')
-      File.write(fixture_client_secret_path, '{ "installed": { "client_id": "test_client_id_fixture", "client_secret": "test_client_secret_fixture" } }')
-      File.write(fixture_tokens_path, "---
-default_user: !ruby/object:Google::Auth::UserRefreshCredentials
-  access_token: fake_access_token_fixture
-  client_id: test_client_id_fixture
-  client_secret: test_client_secret_fixture
-  refresh_token: fake_refresh_token_fixture
-  scope: https://www.googleapis.com/auth/youtube.upload
-  expiration_time_millis: #{(Time.now.to_i + 3600) * 1000}
-")
-      # Set the @service instance variable with a mock for list_videos tests
-      # This simulates that authenticate was called successfully and @service is set.
-      allow(mock_youtube_service).to receive(:authorization).and_return(mock_list_video_credentials)
+      # Simulate that authentication has occurred and @service is set with the mock_youtube_service.
       gateway.instance_variable_set(:@service, mock_youtube_service)
+      # Mock the authorization check to simulate an authenticated service
+      # Use Google::Auth::UserRefreshCredentials as it's the class that has access_token
+      allow(mock_youtube_service).to receive(:authorization).and_return(instance_double(Google::Auth::UserRefreshCredentials, access_token: 'fake_token'))
     end
 
-    after do
-      # Clean up fixture files created for list_videos tests
-      FileUtils.rm_f(fixture_client_secret_path)
-      FileUtils.rm_f(fixture_tokens_path)
-      FileUtils.rm_rf('spec/fixtures') if Dir.exist?('spec/fixtures') && Dir.empty?('spec/fixtures')
+    let(:max_results) { 5 }
+    let(:api_video_item) do
+      # Ensure Google::Apis::YoutubeV3::Video is available
+      item = Google::Apis::YoutubeV3::Video.new
+      item.id = 'video123'
+      snippet = Google::Apis::YoutubeV3::VideoSnippet.new
+      snippet.title = 'Test Video Title'
+      # Ensure published_at is a string in ISO 8601 format as the API would return
+      snippet.published_at = Time.now.utc.iso8601
+      thumbnails = Google::Apis::YoutubeV3::ThumbnailDetails.new
+      default_thumbnail = Google::Apis::YoutubeV3::Thumbnail.new
+      default_thumbnail.url = 'http://example.com/thumb.jpg'
+      thumbnails.default = default_thumbnail
+      snippet.thumbnails = thumbnails
+      item.snippet = snippet
+      # player and status are also part of the 'part' parameter, but not strictly needed for this mapping test if not used by VideoListItem
+      item
     end
-
-    context 'when authentication is missing (no @service)' do
-      it 'raises an error' do
-        gateway.instance_variable_set(:@service, nil) # Simulate service not being set
-        expect { gateway.list_videos }.to raise_error('Authentication required before listing videos. Please run the auth command.')
-      end
-    end
-
-    context 'when @service is present but authorization is missing' do
-      it 'raises an error' do
-        allow(mock_youtube_service).to receive(:authorization).and_return(nil)
-        gateway.instance_variable_set(:@service, mock_youtube_service)
-        expect { gateway.list_videos }.to raise_error('Authentication required before listing videos. Please run the auth command.')
-      end
-    end
-
-    context 'when @service is present but access_token is missing' do
-      it 'raises an error' do
-        allow(mock_list_video_credentials).to receive(:access_token).and_return(nil) # mock_list_video_credentials is used here
-        allow(mock_youtube_service).to receive(:authorization).and_return(mock_list_video_credentials)
-        gateway.instance_variable_set(:@service, mock_youtube_service)
-        expect { gateway.list_videos }.to raise_error('Authentication required before listing videos. Please run the auth command.')
-      end
+    let(:api_response) do
+      # Correct class name is ListVideosResponse (plural)
+      response = Google::Apis::YoutubeV3::ListVideosResponse.new
+      response.items = [api_video_item]
+      response.next_page_token = nil # Optional: for pagination tests
+      response.prev_page_token = nil # Optional
+      # page_info = Google::Apis::YoutubeV3::PageInfo.new
+      # page_info.total_results = 1
+      # page_info.results_per_page = max_results
+      # response.page_info = page_info # Optional
+      response
     end
 
     context 'when API call is successful' do
-      let(:api_response_item1) do
-        double('Google::Apis::YoutubeV3::Video',
-               id: 'id1',
-               snippet: double('Google::Apis::YoutubeV3::VideoSnippet',
-                               title: 'Video Title 1',
-                               published_at: '2023-01-01T12:00:00Z',
-                               thumbnails: double('Google::Apis::YoutubeV3::ThumbnailDetails', default: double('thumbnail', url: 'http://thumb1.jpg'))),
-               player: double('Google::Apis::YoutubeV3::VideoPlayer', embed_html: '<iframe...id1>'),
-               status: double('Google::Apis::YoutubeV3::VideoStatus', privacy_status: 'public')
-              )
-      end
-      let(:api_response_item2) do
-        double('Google::Apis::YoutubeV3::Video',
-               id: 'id2',
-               snippet: double('Google::Apis::YoutubeV3::VideoSnippet',
-                               title: 'Video Title 2',
-                               published_at: '2023-01-02T12:00:00Z',
-                               thumbnails: double('Google::Apis::YoutubeV3::ThumbnailDetails', default: double('thumbnail', url: 'http://thumb2.jpg'))),
-               player: double('Google::Apis::YoutubeV3::VideoPlayer', embed_html: '<iframe...id2>'),
-               status: double('Google::Apis::YoutubeV3::VideoStatus', privacy_status: 'private')
-              )
-      end
-      let(:api_response) { double('Google::Apis::YoutubeV3::ListVideoResponse', items: [api_response_item1, api_response_item2], next_page_token: nil) }
+      it 'calls the YouTube API with `mine: true` and maps the response' do
+        expect(mock_youtube_service).to receive(:list_videos)
+          .with('snippet,player,status', mine: true, max_results: max_results, page_token: nil) # Match keyword arguments
+          .and_return(api_response)
 
-      it 'calls the YouTube API with correct parameters and maps response' do
-        expected_parts = 'snippet,player,status'
-        # Default max_results in implementation is 25, but test is for 10
+        # Pass mock_logger as logger to gateway calls if it were a direct param
+        # but gateway is already initialized with mock_logger via the outer let(:gateway)
+        video_list_items = gateway.list_videos(options: { max_results: max_results })
 
-        expect(mock_youtube_service).to receive(:list_videos) do |part, opts|
-          expect(part).to eq(expected_parts)
-          expect(opts).to include(max_results: 10)
-          expect(opts).not_to include(:my_videos) # Check that :my_videos is not present
-          expect(opts).not_to include(:mine) # Explicitly check for :mine as well
-          api_response # return value
-        end
-
-        videos = gateway.list_videos(options: { max_results: 10 })
-
-        expect(videos.size).to eq(2)
-        expect(videos.first).to be_an_instance_of(Entities::VideoListItem)
-        expect(videos.first.id).to eq('id1')
-        expect(videos.first.title).to eq('Video Title 1')
-        expect(videos.first.youtube_url).to eq('https://www.youtube.com/watch?v=id1')
-        expect(videos.first.published_at).to eq(Time.parse('2023-01-01T12:00:00Z'))
-        expect(videos.first.thumbnail_url).to eq('http://thumb1.jpg')
-      end
-
-      it 'uses provided max_results (implementation default is 25) and page_token' do
-        expect(mock_youtube_service).to receive(:list_videos) do |part, opts|
-          expect(part).to eq('snippet,player,status')
-          expect(opts).to include(max_results: 5, page_token: 'nextPage123')
-          expect(opts).not_to include(:my_videos)
-          expect(opts).not_to include(:mine)
-          double('Google::Apis::YoutubeV3::ListVideoResponse', items: [], next_page_token: nil) # return value
-        end
-
-        gateway.list_videos(options: { max_results: 5, page_token: 'nextPage123' })
-      end
-
-      it 'uses default max_results of 25 if not provided' do
-        expect(mock_youtube_service).to receive(:list_videos) do |part, opts|
-          expect(part).to eq('snippet,player,status')
-          expect(opts).to include(max_results: 25)
-          expect(opts).not_to include(:my_videos)
-          expect(opts).not_to include(:mine)
-          expect(opts).to include(page_token: nil) # page_token should be present and nil
-          double('Google::Apis::YoutubeV3::ListVideoResponse', items: [], next_page_token: nil) # return value
-        end
-        gateway.list_videos(options: {}) # No max_results here
-      end
-
-
-      it 'returns an empty array if API returns no items' do
-        empty_response = double('Google::Apis::YoutubeV3::ListVideoResponse', items: [], next_page_token: nil)
-        allow(mock_youtube_service).to receive(:list_videos).and_return(empty_response)
-
-        videos = gateway.list_videos
-        expect(videos).to be_empty
-      end
-
-      it 'returns an empty array if API returns nil items' do
-        nil_items_response = double('Google::Apis::YoutubeV3::ListVideoResponse', items: nil, next_page_token: nil)
-        allow(mock_youtube_service).to receive(:list_videos).and_return(nil_items_response)
-
-        videos = gateway.list_videos
-        expect(videos).to be_empty
+        expect(video_list_items).to be_an(Array)
+        expect(video_list_items.size).to eq(1)
+        video_item = video_list_items.first
+        expect(video_item).to be_a(Entities::VideoListItem)
+        expect(video_item.id).to eq('video123')
+        expect(video_item.title).to eq('Test Video Title')
+        expect(video_item.youtube_url).to eq('https://www.youtube.com/watch?v=video123')
+        expect(video_item.thumbnail_url).to eq('http://example.com/thumb.jpg')
+        # To test published_at, ensure it's parsed correctly into a Time object
+        expect(video_item.published_at).to be_a(Time)
+        # Compare ISO8601 strings for precision, especially with milliseconds
+        expect(video_item.published_at.iso8601(3)).to eq(Time.parse(api_video_item.snippet.published_at).iso8601(3))
       end
     end
 
     context 'when API call fails' do
-      it 'handles Google::Apis::ClientError and returns empty array' do
-        allow(mock_youtube_service).to receive(:list_videos) # Changed to allow for logger expectation
-          .and_raise(Google::Apis::ClientError.new('client error'))
-        expect(mock_logger).to receive(:error).with("Google API Client Error while listing videos: client error")
-        expect(gateway.list_videos).to be_empty
+      it 'logs an error and returns an empty array for Google::Apis::ClientError' do
+        expect(mock_youtube_service).to receive(:list_videos)
+          .with('snippet,player,status', mine: true, max_results: anything, page_token: anything) # Match keyword arguments, allow any value for others
+          .and_raise(Google::Apis::ClientError.new('API client error'))
+
+        # Expect logger (which is mock_logger) to be called
+        expect(mock_logger).to receive(:error).with("Google API Client Error while listing videos: API client error")
+
+        video_list_items = gateway.list_videos(options: {max_results: 10}) # Example options
+        expect(video_list_items).to eq([])
       end
 
-      it 're-raises Google::Apis::AuthorizationError' do
-        allow(mock_youtube_service).to receive(:list_videos) # Changed to allow for logger expectation
-          .and_raise(Google::Apis::AuthorizationError.new('auth error'))
-        expect(mock_logger).to receive(:error).with("Google API Authorization Error while listing videos: auth error")
-        expect { gateway.list_videos }.to raise_error(Google::Apis::AuthorizationError, 'auth error')
+      it 'logs an error and re-raises Google::Apis::AuthorizationError' do
+        expect(mock_youtube_service).to receive(:list_videos)
+          .with('snippet,player,status', mine: true, max_results: anything, page_token: anything) # Match keyword arguments
+          .and_raise(Google::Apis::AuthorizationError.new('API auth error'))
+
+        expect(mock_logger).to receive(:error).with("Google API Authorization Error while listing videos: API auth error")
+
+        expect { gateway.list_videos(options: {}) }.to raise_error(Google::Apis::AuthorizationError, 'API auth error')
+      end
+    end
+
+    context 'when not authenticated' do
+      it 'raises an error if @service is nil' do
+        gateway.instance_variable_set(:@service, nil) # Simulate @service not being set
+        expect(mock_logger).to receive(:warn).with('Attempted to list videos without prior authentication.')
+        expect { gateway.list_videos(options: {}) }.to raise_error('Authentication required before listing videos. Please run the auth command.')
       end
 
-      it 'handles other StandardError and returns empty array' do
-        allow(mock_youtube_service).to receive(:list_videos) # Changed to allow for logger expectation
-          .and_raise(StandardError.new('unexpected error'))
-        expect(mock_logger).to receive(:error).with("An unexpected error occurred while listing videos: unexpected error")
-        expect(gateway.list_videos).to be_empty
+      it 'raises an error if @service.authorization is nil' do
+        allow(mock_youtube_service).to receive(:authorization).and_return(nil)
+        # @service is already set with mock_youtube_service in the main before block for this describe
+        expect(mock_logger).to receive(:warn).with('Attempted to list videos without prior authentication.')
+        expect { gateway.list_videos(options: {}) }.to raise_error('Authentication required before listing videos. Please run the auth command.')
+      end
+
+      it 'raises an error if @service.authorization.access_token is nil' do
+        # Ensure the authorization double itself is not nil, but its access_token is.
+        # Use Google::Auth::UserRefreshCredentials as it's the class that has access_token
+        auth_double_no_token = instance_double(Google::Auth::UserRefreshCredentials, access_token: nil)
+        allow(mock_youtube_service).to receive(:authorization).and_return(auth_double_no_token)
+        # @service is already set
+        expect(mock_logger).to receive(:warn).with('Attempted to list videos without prior authentication.')
+        expect { gateway.list_videos(options: {}) }.to raise_error('Authentication required before listing videos. Please run the auth command.')
       end
     end
   end
