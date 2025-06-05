@@ -16,7 +16,7 @@ module Gateways
     include YouTubeServiceGateway # Includes the interface methods and default get_authorization_instructions
 
     OOB_URI = 'urn:ietf:wg:oauth:2.0:oob' # Out-of-band URI for desktop apps
-    YOUTUBE_API_SCOPE = Google::Apis::YoutubeV3::AUTH_YOUTUBE_UPLOAD
+    YOUTUBE_API_SCOPE = [Google::Apis::YoutubeV3::AUTH_YOUTUBE_UPLOAD, Google::Apis::YoutubeV3::AUTH_YOUTUBE_READONLY]
 
     def initialize(logger)
       @logger = logger
