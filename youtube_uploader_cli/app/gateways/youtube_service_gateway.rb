@@ -38,9 +38,19 @@ module Gateways
         raise NotImplementedError, "\#{self.class} has not implemented method '#{__method__}'"
     end
 
+    # Lists videos from YouTube.
+    #
+    # @param options [Hash] A hash of options to filter/control the list (e.g., :max_results).
+    # @return [Array<Entities::VideoListItem>] An array of video list items.
+    #   Returns an empty array if no videos are found or in case of certain errors.
+    #   May raise an error for critical issues (e.g., authentication failure).
+    def list_videos(options: {})
+      raise NotImplementedError, "\#{self.class} has not implemented method '#{__method__}'"
+    end
+
     # Make methods available as module functions if this module is used directly
     # or if a class wants to call them in a functional way.
     # However, typically these would be implemented by a class including this module.
-    module_function :authenticate, :upload_video, :get_authorization_instructions, :exchange_code_for_tokens
+    module_function :authenticate, :upload_video, :get_authorization_instructions, :exchange_code_for_tokens, :list_videos
   end
 end
