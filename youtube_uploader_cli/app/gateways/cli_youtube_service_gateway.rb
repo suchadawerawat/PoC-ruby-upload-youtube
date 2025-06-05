@@ -10,10 +10,6 @@ require_relative '../entities/video_list_item'
 
 
 module Gateways
-  # Custom error for YouTube upload failures
-  class YouTubeUploadError < StandardError; end
-  class AuthenticationError < StandardError; end
-
   # Concrete implementation of YouTubeServiceGateway for a CLI environment.
   # Handles OAuth 2.0 authentication and video uploads using the google-api-client.
   class CliYouTubeServiceGateway
@@ -38,7 +34,7 @@ module Gateways
     # @return [Google::Apis::YoutubeV3::YouTubeService] An authorized YouTube API service client.
     # @raise [StandardError] if authentication fails.
     def authenticate(config:, user_interaction_provider: nil)
-      @logger.info('Starting authentication process...') # INFO: Start of auth
+      @logger.info('Starting authentication process...')
       client_secret_path = config.fetch(:client_secret_path)
       unless File.exist?(client_secret_path)
         @logger.error("Client secret file not found at: #{client_secret_path}")
@@ -48,57 +44,55 @@ module Gateways
       @logger.debug("Client ID loaded from: #{client_secret_path}")
 
       token_store_path = config.fetch(:tokens_path)
-      @logger.debug("Token store path: #{token_store_path}") # DEBUG: Token store path
-      FileUtils.mkdir_p(File.dirname(token_store_path))
+      @logger.debug("Token store path: #{token_store_path}")
+      FileUtils.mkdir_p(File.dirname(token_store_path)) # Ensure directory exists
       token_store = Google::Auth::Stores::FileTokenStore.new(file: token_store_path)
 
       authorizer = Google::Auth::UserAuthorizer.new(client_id, YOUTUBE_API_SCOPE, token_store)
-      user_id = 'default_user'
-      @logger.debug("Attempting to load existing tokens for user_id: #{user_id} from token store: #{token_store_path}") # DEBUG: Attempt load
+      user_id = 'default_user' # For CLI, we usually have one user per token store
+      @logger.debug("Attempting to load credentials for user_id: #{user_id} from token store: #{token_store_path}")
       credentials = authorizer.get_credentials(user_id)
 
       if credentials.nil?
-        @logger.info('No valid credentials found in token store. Initiating new OAuth flow.') # INFO: New flow
+        @logger.info('No valid credentials found in token store. Fresh authentication is required.')
         auth_url = authorizer.get_authorization_url(base_url: OOB_URI)
-        @logger.debug("OAuth flow details: App Name: #{config.fetch(:app_name, 'Ruby YouTube Uploader')}, Scope: #{YOUTUBE_API_SCOPE.join(', ')}") # DEBUG: Auth URL details
-        @logger.debug("Generated authorization URL: #{auth_url}") # DEBUG: Auth URL itself
+        @logger.debug("OAuth flow details: Application Name: #{config.fetch(:app_name, 'Ruby YouTube Uploader')}, Client ID Path: #{client_secret_path}, Scope: #{YOUTUBE_API_SCOPE}")
+        @logger.info("Generated authorization URL: #{auth_url}")
 
-        code_input_instruction = get_authorization_instructions(auth_url: auth_url)
-        @logger.info("Waiting for user to authorize and enter code. Instructions: #{code_input_instruction}") # INFO: Waiting for user
+        # Use the provided interaction provider or default to STDIN
+        code_input_instruction = get_authorization_instructions(auth_url: auth_url) # Uses method from included module
+        @logger.info("Prompting user to visit the authorization URL and provide code.")
         code = if user_interaction_provider
                  user_interaction_provider.call(code_input_instruction)
                else
-                 puts code_input_instruction # This is user-facing, not logged explicitly as a log message
-                 STDIN.gets.chomp.strip
+                 puts code_input_instruction
+                 STDIN.gets.chomp.strip # Make sure to strip whitespace
                end
 
-        # DEBUG: Log received code (masked)
-        @logger.debug("Authorization code received: #{code.nil? || code.empty? ? 'EMPTY' : '****** (masked)'}")
+        @logger.debug("User provided authorization code: #{code.nil? || code.empty? ? 'EMPTY' : '******'}") # Avoid logging the actual code if possible
 
         if code.nil? || code.empty?
-          @logger.error('Authentication cancelled: Authorization code not provided by user.') # ERROR: No code
+          @logger.error('Authentication cancelled or authorization code not provided by user.')
           raise "Authentication cancelled or code not provided."
         end
 
-        @logger.debug("Attempting to exchange authorization code for token...") # DEBUG: Attempt exchange
+        @logger.info('Exchanging authorization code for tokens...')
         begin
           credentials = authorizer.get_and_store_credentials_from_code(
             user_id: user_id, code: code, base_url: OOB_URI
           )
-          @logger.info('Token exchange successful. Credentials received.') # INFO: Exchange success
-          @logger.debug("New tokens saved to store: #{token_store_path}") # DEBUG: Saving new tokens
+          @logger.debug('Token exchange successful. Credentials received.')
+          @logger.info("Storing new tokens to file: #{token_store_path}")
         rescue StandardError => e
-          @logger.error("Error during token exchange: #{e.message}") # ERROR: Exchange failure
-          @logger.debug("Backtrace for token exchange error: #{e.backtrace.join("\n")}")
-          raise "Failed to exchange authorization code for token: #{e.message}"
+          @logger.error("Error during token exchange or storage: #{e.message}")
+          raise
         end
       else
-        @logger.info('Successfully loaded existing tokens from file.') # INFO: Tokens loaded
+        @logger.info('Successfully loaded existing tokens from file.')
       end
 
       if credentials.nil?
-        # This case should ideally be caught by the specific error handling above (e.g. token exchange failure)
-        @logger.error('Failed to obtain credentials after authentication process.') # ERROR: General failure
+        @logger.error('Failed to obtain credentials after authentication process.')
         raise "Failed to obtain credentials."
       end
 
@@ -106,13 +100,12 @@ module Gateways
       service = Google::Apis::YoutubeV3::YouTubeService.new
       service.client_options.application_name = config.fetch(:app_name, 'Ruby YouTube Uploader')
       service.authorization = credentials
-      @service = service
+      @service = service # Store the service instance
       @logger.info('YouTube API service initialized and authorized successfully.')
-      @service
+      @service # Explicitly return the service
     rescue StandardError => e
-      # Log generic errors not caught by more specific handlers above
-      @logger.error("An unexpected error occurred during the authentication process: #{e.message}") # ERROR: Any other error
-      @logger.debug("Backtrace for unexpected authentication error: #{e.backtrace.join("\n")}")
+      @logger.error("An unexpected error occurred during authentication: #{e.message}")
+      # Optionally log backtrace if in debug mode, e.g., @logger.debug(e.backtrace.join("\n"))
       raise # Re-raise the exception after logging
     end
 
@@ -266,25 +259,20 @@ module Gateways
     # Uploads a video to YouTube.
     #
     # @param video_details [Entities::VideoDetails] An object containing all necessary video metadata.
-    # @return [Google::Apis::YoutubeV3::Video] The uploaded video object from YouTube API.
-    # @raise [AuthenticationError] if the service is not authenticated.
-    # @raise [ArgumentError] if the video file does not exist.
-    # @raise [YouTubeUploadError] if the API upload fails.
-    # @raise [StandardError] for other unexpected issues.
+    # @return [Google::Apis::YoutubeV3::Video, nil] The uploaded video object from YouTube API, or nil if failed.
     def upload_video(video_details:)
-      @logger.info("Starting video upload for: '#{video_details.title}'")
-      @logger.debug("Video details being used for upload: #{video_details.inspect}")
+      @logger.info("Attempting to upload video: '#{video_details.title}' from path: '#{video_details.file_path}'")
 
       unless @service && @service.authorization && @service.authorization.access_token
-        msg = 'Authentication required before uploading video. Service not initialized or not authorized.'
-        @logger.error(msg)
-        raise AuthenticationError, msg
+        @logger.error('Authentication required before uploading video. Service not initialized or not authorized.')
+        # For MVP, we assume authenticate has been called. In a more robust version,
+        # this might trigger authentication or return a specific error/status.
+        return nil # Or raise an error, e.g., StandardError.new("Not authenticated")
       end
 
       unless File.exist?(video_details.file_path)
-        msg = "Video file not found at path: #{video_details.file_path}"
-        @logger.error(msg)
-        raise ArgumentError, msg # Or IOError
+        @logger.error("Video file not found at path: #{video_details.file_path}")
+        return nil # Or raise an error
       end
 
       video_object = Google::Apis::YoutubeV3::Video.new(
@@ -292,51 +280,47 @@ module Gateways
           title: video_details.title,
           description: video_details.description,
           tags: video_details.tags,
-          category_id: video_details.category_id.to_s # Ensure category_id is a string
+          category_id: video_details.category_id
         },
         status: {
           privacy_status: video_details.privacy_status
         }
       )
-      @logger.debug("Constructed Google::Apis::YoutubeV3::Video object: #{video_object.to_json}")
+      @logger.debug("Constructed YouTube Video object: #{video_object.to_json}")
 
       begin
-        # Note: Starting log was moved up. Re-logging file_path here for clarity during actual upload step.
-        @logger.debug("Initiating upload of file: #{video_details.file_path} to YouTube.")
-        content_type = 'application/octet-stream' # Generic content type
+        @logger.info("Starting video upload to YouTube for: #{video_details.file_path}")
+        # Determine content type (basic for now, could be more sophisticated)
+        content_type = 'application/octet-stream' # Generic, or use MIME::Types if available for video_details.file_path
         @logger.debug("Uploading with content_type: #{content_type}")
 
         response = @service.insert_video(
-          'snippet,status', # Parts to include in the API response
+          'snippet,status', # Parts to include in the request
           video_object,
           upload_source: video_details.file_path,
           content_type: content_type,
           options: {
-            # authorization: @service.authorization # Already set on @service instance
+            # authorization: @service.authorization # Already set on @service
           }
         )
 
-        @logger.info("Video uploaded successfully. ID: #{response.id}")
-        @logger.debug("Full API response for successful upload: #{response.to_json}")
+        @logger.info("Successfully uploaded video. YouTube Video ID: #{response.id}")
+        @logger.debug("Full API response: #{response.to_json}")
         response # Return the full video object from YouTube
       rescue Google::Apis::ClientError => e
-        error_message = "Failed to upload video: Google API Client Error. Status: #{e.status_code}, Message: #{e.message}"
-        error_message += " Body: #{e.body}" if e.respond_to?(:body) && e.body
-        @logger.error(error_message)
-        @logger.debug("ClientError Headers: #{e.header}") if e.respond_to?(:header)
-        @logger.debug("ClientError Backtrace: #{e.backtrace.join("\n")}")
-        raise YouTubeUploadError, error_message
+        @logger.error("Google API Client Error during video upload: #{e.message}")
+        @logger.error("Body: #{e.body}") if e.respond_to?(:body)
+        @logger.error("Headers: #{e.header}") if e.respond_to?(:header)
+        # Consider logging e.status_code as well
+        nil # Return nil on failure
       rescue Google::Apis::AuthorizationError => e
-        error_message = "Failed to upload video: Google API Authorization Error. Message: #{e.message}"
-        @logger.error(error_message)
-        @logger.debug("AuthorizationError Backtrace: #{e.backtrace.join("\n")}")
+        @logger.error("Google API Authorization Error during video upload: #{e.message}")
         # This might indicate expired or revoked credentials.
-        raise YouTubeUploadError, error_message # Could also be AuthenticationError if more specific
+        nil
       rescue StandardError => e
-        error_message = "Failed to upload video: An unexpected error occurred. Type: #{e.class}, Message: #{e.message}"
-        @logger.error(error_message)
-        @logger.debug("Unexpected Error Backtrace: #{e.backtrace.join("\n")}")
-        raise YouTubeUploadError, error_message # Or re-raise e if appropriate
+        @logger.error("An unexpected error occurred during video upload: #{e.message}")
+        @logger.error("Backtrace: #{e.backtrace.join("\n")}")
+        nil
       end
     end
 

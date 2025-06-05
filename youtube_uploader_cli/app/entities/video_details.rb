@@ -17,64 +17,46 @@ module Entities
     # @param category_id [String] YouTube category ID (e.g., "22" for People & Blogs).
     # @param privacy_status [String] Privacy status ('public', 'private', 'unlisted'). Defaults to 'private'.
     # @param tags [Array<String>] Tags for the video. Defaults to an empty array.
-    def initialize(file_path:, title:, description:, category_id:, privacy_status: nil, tags: nil)
+    def initialize(file_path:, title:, description:, category_id:, privacy_status: DEFAULT_PRIVACY_STATUS, tags: DEFAULT_TAGS)
       @file_path = file_path
       @title = title
-      @description = description || "" # Default to empty string if nil
-      @category_id = category_id # Validation will ensure it's present
-
-      # Handle privacy_status: default if nil, or if provided but invalid
-      @privacy_status = if privacy_status.nil? || !VALID_PRIVACY_STATUSES.include?(privacy_status)
-                          DEFAULT_PRIVACY_STATUS
-                        else
-                          privacy_status
-                        end
+      @description = description
+      @category_id = category_id
+      @privacy_status = privacy_status || DEFAULT_PRIVACY_STATUS
       @tags = tags || DEFAULT_TAGS
 
       validate!
     end
 
     def to_s
-      "VideoDetails(title: '#{@title}', privacy: '#{@privacy_status}')"
+      "VideoDetails(file_path: '#{@file_path}', title: '#{@title}', description: '#{@description}', "\
+      "privacy_status: '#{@privacy_status}', tags: #{@tags.inspect}, category_id: '#{@category_id}')"
     end
 
-    # Returns a string representation suitable for logging, including class name, object_id, and instance variables.
-    def inspect
-      vars = instance_variables.map do |var|
-        "#{var}=#{instance_variable_get(var).inspect}"
-      end.join(", ")
-      "#<#{self.class.name}:0x#{object_id.to_s(16)} #{vars}>"
-    end
+    alias_method :inspect, :to_s
 
     private
 
     def validate!
-      # Essential Validations
       if @file_path.nil? || @file_path.strip.empty?
-        raise ArgumentError, "File path cannot be blank. Got: '#{@file_path.inspect}'"
+        raise ArgumentError, "File path cannot be blank"
       end
+      # Title can be empty according to YouTube, but let's assume we want it for our app
       if @title.nil? || @title.strip.empty?
-        raise ArgumentError, "Title cannot be blank. Got: '#{@title.inspect}'"
+        raise ArgumentError, "Title cannot be blank"
       end
-      if @category_id.nil? || @category_id.to_s.strip.empty? # Allow integer or string for category_id
-        raise ArgumentError, "Category ID cannot be blank. Got: '#{@category_id.inspect}'"
+      # Description can be blank.
+      if @category_id.nil? || @category_id.strip.empty?
+        raise ArgumentError, "Category ID cannot be blank"
       end
-      @category_id = @category_id.to_s # Ensure category_id is a string after validation
-
-      # Privacy status is already defaulted if invalid or nil, so this check is more of an assertion.
-      # However, if we didn't default it in initialize, this would be the place to raise an error.
-      # For now, we ensure it's one of the valid ones after defaulting.
       unless VALID_PRIVACY_STATUSES.include?(@privacy_status)
-        # This should not be reached if defaulting logic in initialize is correct
-        raise ArgumentError, "Internal error: Privacy status '#{@privacy_status}' is invalid despite defaulting. Allowed: #{VALID_PRIVACY_STATUSES.join(', ')}"
+        raise ArgumentError, "Privacy status must be one of: #{VALID_PRIVACY_STATUSES.join(', ')}. Got: '#{@privacy_status}'"
       end
-
-      # Tags validation
       unless @tags.is_a?(Array)
-        raise ArgumentError, "Tags must be an array. Got: '#{@tags.class}'"
+        raise ArgumentError, "Tags must be an array. Got: #{@tags.class}"
       end
       if @tags.any? { |tag| !tag.is_a?(String) }
-        raise ArgumentError, "All tags must be strings. Got: '#{@tags.inspect}'"
+        raise ArgumentError, "All tags must be strings."
       end
     end
   end

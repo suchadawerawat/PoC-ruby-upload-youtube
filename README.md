@@ -172,51 +172,9 @@ To use this tool, you'll need to authorize it to access your YouTube account. Th
     *   Find your newly created "Desktop app" client in the "OAuth 2.0 Client IDs" list.
     *   Click the download icon (looks like a downward arrow) next to it. This will download a JSON file, usually named something like `client_secret_XXXXXXXXXXXX.json`.
     *   **Rename this file to `client_secret.json`**.
-    *   **Place this `client_secret.json` file into the `config/` directory within this project.** (i.e., `youtube_uploader_cli/config/client_secret.json`). Alternatively, you can specify a custom path using the `GOOGLE_CLIENT_SECRET_PATH` environment variable.
+    *   **Place this `client_secret.json` file into the `config/` directory within this project.** (i.e., `youtube_uploader_cli/config/client_secret.json`)
 
-    **Important Security Note:** The `client_secret.json` file contains sensitive credentials. It should **NEVER** be committed to version control. Ensure your project's `.gitignore` file includes `config/client_secret.json` (or any custom path you configure).
-
-### Expected `client_secret.json` Structure
-
-The `client_secret.json` file should look like this. Obtain the actual values from the Google Cloud Console:
-
-```json
-{
-  "installed": {
-    "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com",
-    "project_id": "YOUR_PROJECT_ID",
-    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-    "token_uri": "https://oauth2.googleapis.com/token",
-    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-    "client_secret": "YOUR_CLIENT_SECRET",
-    "redirect_uris": ["http://localhost"]
-  }
-}
-```
-Replace `"YOUR_CLIENT_ID.apps.googleusercontent.com"`, `"YOUR_PROJECT_ID"`, and `"YOUR_CLIENT_SECRET"` with the actual values from the file you download from Google.
-
-## Authentication Tokens (`tokens.yaml`)
-
-Once you successfully authenticate using the `youtube_upload auth` command, the application will create a file to store the OAuth 2.0 tokens. These tokens allow the application to make requests to the YouTube API on your behalf without needing you to re-authenticate each time.
-
-*   **Purpose**: Stores OAuth 2.0 access and refresh tokens.
-*   **Generation**: Automatically generated and managed by the application after a successful `auth` command. You typically do not need to create or edit this file manually.
-*   **Default Location**: `config/tokens.yaml` (relative to the project root `youtube_uploader_cli/`).
-*   **Environment Variable**: The path for this token file can be customized using the `YOUTUBE_TOKENS_PATH` environment variable.
-
-### Example `tokens.yaml` Structure
-
-The `tokens.yaml` file stores tokens for each authenticated user (for this CLI, it's typically just 'default_user'). It will look something like this:
-
-```yaml
----
-default_user: '{"client_id":"YOUR_CLIENT_ID.apps.googleusercontent.com","access_token":"ACTUAL_ACCESS_TOKEN","refresh_token":"ACTUAL_REFRESH_TOKEN","scope":["https://www.googleapis.com/auth/youtube.upload","https://www.googleapis.com/auth/youtube.readonly"],"expiration_time_millis":1749154660000}'
-```
-*   `YOUR_CLIENT_ID...` will match the client ID from your `client_secret.json`.
-*   `ACTUAL_ACCESS_TOKEN` and `ACTUAL_REFRESH_TOKEN` are the tokens obtained from Google.
-*   `expiration_time_millis` indicates when the access token expires. The refresh token is used to obtain new access tokens.
-
-**Note**: While you generally shouldn't edit this file, its contents can be useful for debugging authentication issues. If you suspect token corruption, you can delete this file and re-run `youtube_upload auth`.
+    **Important Security Note:** The `client_secret.json` file contains sensitive credentials. It should **NEVER** be committed to version control. Ensure your project's `.gitignore` file includes `config/client_secret.json`.
 
 ## Environment Variables
 
