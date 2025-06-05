@@ -136,128 +136,264 @@ RSpec.describe Gateways::CliYouTubeServiceGateway do
 
   # Tests for #upload_video will be added in a subsequent step when it's implemented.
 
-  # Note: The existing `let(:logger)` is called `mock_logger`.
-  # The new tests use `logger` as the variable name for the logger passed to the gateway.
-  # We will ensure `gateway` is initialized with `mock_logger`.
-  # The `let(:gateway)` is already defined as `described_class.new(mock_logger)`.
-
   describe '#list_videos' do
-    # mock_youtube_service is used by the new tests, and gateway is already using mock_logger
-    # Using a plain double to avoid instance_double's strict keyword argument checking for now,
-    # as the 'mine: true' keyword argument seems to be the issue with the real library vs instance_double.
-    let(:mock_youtube_service) { double('Google::Apis::YoutubeV3::YouTubeService') }
-    # gateway is already defined in the outer scope and initialized with mock_logger.
+    # Using instance_double to ensure method signatures are respected.
+    let(:mock_youtube_service) { instance_double(Google::Apis::YoutubeV3::YouTubeService) }
+    let(:max_results_option) { 10 }
+    let(:page_token_option) { 'nextPageToken123' }
+    let(:options) { { max_results: max_results_option, page_token: page_token_option } }
+
+    # Mock data for list_channels call
+    let(:mock_uploads_playlist_id) { 'UUxxxxxxxxx_uploads_playlist_id' }
+    let(:channel_item) do
+      channel = Google::Apis::YoutubeV3::Channel.new
+      content_details = Google::Apis::YoutubeV3::ChannelContentDetails.new
+      related_playlists = Google::Apis::YoutubeV3::ChannelContentDetails::RelatedPlaylists.new
+      related_playlists.uploads = mock_uploads_playlist_id
+      content_details.related_playlists = related_playlists
+      channel.content_details = content_details
+      channel.id = 'channel123' # Add an ID for completeness
+      channel
+    end
+    let(:channel_response) do
+      response = Google::Apis::YoutubeV3::ListChannelsResponse.new # Corrected: ListChannelsResponse
+      response.items = [channel_item]
+      response
+    end
+    let(:empty_channel_response) do
+      Google::Apis::YoutubeV3::ListChannelsResponse.new.tap { |r| r.items = [] } # Corrected: ListChannelsResponse
+    end
+    let(:channel_response_no_uploads_id) do
+      channel_no_id = Google::Apis::YoutubeV3::Channel.new
+      content_details_no_id = Google::Apis::YoutubeV3::ChannelContentDetails.new
+      related_playlists_no_id = Google::Apis::YoutubeV3::ChannelContentDetails::RelatedPlaylists.new
+      # uploads_id is intentionally nil or empty
+      content_details_no_id.related_playlists = related_playlists_no_id
+      channel_no_id.content_details = content_details_no_id
+      Google::Apis::YoutubeV3::ListChannelsResponse.new.tap { |r| r.items = [channel_no_id] } # Corrected: ListChannelsResponse
+    end
+
+    # Mock data for list_playlist_items call
+    let(:playlist_item1_video_id) { 'video123' }
+    let(:playlist_item1_title) { 'Test Playlist Video 1' }
+    let(:playlist_item1_published_at_str) { '2023-01-01T12:00:00Z' }
+    let(:playlist_item1_published_at_time) { Time.parse(playlist_item1_published_at_str) }
+    let(:playlist_item1_thumb_url) { 'http://example.com/medium_thumb1.jpg' }
+
+    let(:playlist_item1) do
+      item = Google::Apis::YoutubeV3::PlaylistItem.new
+      item.id = 'p_item_1' # Playlist item ID
+      snippet = Google::Apis::YoutubeV3::PlaylistItemSnippet.new
+      snippet.title = playlist_item1_title
+      snippet.published_at = playlist_item1_published_at_str
+      resource_id = Google::Apis::YoutubeV3::ResourceId.new
+      resource_id.video_id = playlist_item1_video_id
+      resource_id.kind = 'youtube#video'
+      snippet.resource_id = resource_id
+      thumbnails = Google::Apis::YoutubeV3::ThumbnailDetails.new
+      medium_thumbnail = Google::Apis::YoutubeV3::Thumbnail.new
+      medium_thumbnail.url = playlist_item1_thumb_url
+      thumbnails.medium = medium_thumbnail
+      snippet.thumbnails = thumbnails
+      item.snippet = snippet
+      item
+    end
+
+    let(:playlist_item_malformed_video_id) do
+        item = Google::Apis::YoutubeV3::PlaylistItem.new
+        item.id = 'p_item_malformed'
+        snippet = Google::Apis::YoutubeV3::PlaylistItemSnippet.new
+        snippet.title = "Malformed Video ID Item"
+        # snippet.resource_id is missing or resource_id.video_id is missing
+        item.snippet = snippet
+        item
+    end
+
+    let(:playlist_item_unparseable_date) do
+        item = Google::Apis::YoutubeV3::PlaylistItem.new
+        item.id = 'p_item_bad_date'
+        snippet = Google::Apis::YoutubeV3::PlaylistItemSnippet.new
+        snippet.title = "Unparseable Date Item"
+        snippet.published_at = "Definitely not a date"
+        resource_id = Google::Apis::YoutubeV3::ResourceId.new; resource_id.video_id = "video_baddate"; snippet.resource_id = resource_id
+        snippet.thumbnails = Google::Apis::YoutubeV3::ThumbnailDetails.new # Add empty thumbnails to avoid nil errors there
+        item.snippet = snippet
+        item
+    end
+
+    let(:playlist_items_response) do
+      response = Google::Apis::YoutubeV3::ListPlaylistItemsResponse.new # Corrected: ListPlaylistItemsResponse
+      response.items = [playlist_item1]
+      response
+    end
+    let(:empty_playlist_items_response) do
+      Google::Apis::YoutubeV3::ListPlaylistItemsResponse.new.tap { |r| r.items = [] } # Corrected: ListPlaylistItemsResponse
+    end
 
     before do
-      # Simulate that authentication has occurred and @service is set with the mock_youtube_service.
       gateway.instance_variable_set(:@service, mock_youtube_service)
-      # Mock the authorization check to simulate an authenticated service
-      # Use Google::Auth::UserRefreshCredentials as it's the class that has access_token
       allow(mock_youtube_service).to receive(:authorization).and_return(instance_double(Google::Auth::UserRefreshCredentials, access_token: 'fake_token'))
     end
 
-    let(:max_results) { 5 }
-    let(:api_video_item) do
-      # Ensure Google::Apis::YoutubeV3::Video is available
-      item = Google::Apis::YoutubeV3::Video.new
-      item.id = 'video123'
-      snippet = Google::Apis::YoutubeV3::VideoSnippet.new
-      snippet.title = 'Test Video Title'
-      # Ensure published_at is a string in ISO 8601 format as the API would return
-      snippet.published_at = Time.now.utc.iso8601
-      thumbnails = Google::Apis::YoutubeV3::ThumbnailDetails.new
-      default_thumbnail = Google::Apis::YoutubeV3::Thumbnail.new
-      default_thumbnail.url = 'http://example.com/thumb.jpg'
-      thumbnails.default = default_thumbnail
-      snippet.thumbnails = thumbnails
-      item.snippet = snippet
-      # player and status are also part of the 'part' parameter, but not strictly needed for this mapping test if not used by VideoListItem
-      item
-    end
-    let(:api_response) do
-      # Correct class name is ListVideosResponse (plural)
-      response = Google::Apis::YoutubeV3::ListVideosResponse.new
-      response.items = [api_video_item]
-      response.next_page_token = nil # Optional: for pagination tests
-      response.prev_page_token = nil # Optional
-      # page_info = Google::Apis::YoutubeV3::PageInfo.new
-      # page_info.total_results = 1
-      # page_info.results_per_page = max_results
-      # response.page_info = page_info # Optional
-      response
-    end
-
-    context 'when API call is successful' do
-      it 'calls the YouTube API with `mine: true` and maps the response' do
-        expect(mock_youtube_service).to receive(:list_videos)
-          .with('snippet,player,status', mine: true, max_results: max_results, page_token: nil) # Match keyword arguments
-          .and_return(api_response)
-
-        # Pass mock_logger as logger to gateway calls if it were a direct param
-        # but gateway is already initialized with mock_logger via the outer let(:gateway)
-        video_list_items = gateway.list_videos(options: { max_results: max_results })
-
-        expect(video_list_items).to be_an(Array)
-        expect(video_list_items.size).to eq(1)
-        video_item = video_list_items.first
-        expect(video_item).to be_a(Entities::VideoListItem)
-        expect(video_item.id).to eq('video123')
-        expect(video_item.title).to eq('Test Video Title')
-        expect(video_item.youtube_url).to eq('https://www.youtube.com/watch?v=video123')
-        expect(video_item.thumbnail_url).to eq('http://example.com/thumb.jpg')
-        # To test published_at, ensure it's parsed correctly into a Time object
-        expect(video_item.published_at).to be_a(Time)
-        # Compare ISO8601 strings for precision, especially with milliseconds
-        expect(video_item.published_at.iso8601(3)).to eq(Time.parse(api_video_item.snippet.published_at).iso8601(3))
-      end
-    end
-
-    context 'when API call fails' do
-      it 'logs an error and returns an empty array for Google::Apis::ClientError' do
-        expect(mock_youtube_service).to receive(:list_videos)
-          .with('snippet,player,status', mine: true, max_results: anything, page_token: anything) # Match keyword arguments, allow any value for others
-          .and_raise(Google::Apis::ClientError.new('API client error'))
-
-        # Expect logger (which is mock_logger) to be called
-        expect(mock_logger).to receive(:error).with("Google API Client Error while listing videos: API client error")
-
-        video_list_items = gateway.list_videos(options: {max_results: 10}) # Example options
-        expect(video_list_items).to eq([])
-      end
-
-      it 'logs an error and re-raises Google::Apis::AuthorizationError' do
-        expect(mock_youtube_service).to receive(:list_videos)
-          .with('snippet,player,status', mine: true, max_results: anything, page_token: anything) # Match keyword arguments
-          .and_raise(Google::Apis::AuthorizationError.new('API auth error'))
-
-        expect(mock_logger).to receive(:error).with("Google API Authorization Error while listing videos: API auth error")
-
-        expect { gateway.list_videos(options: {}) }.to raise_error(Google::Apis::AuthorizationError, 'API auth error')
-      end
-    end
-
-    context 'when not authenticated' do
+    context 'when authentication is missing' do
+      # These tests from the previous version are still valid.
+      # To make them fully independent, we ensure @service is nilled correctly for each.
       it 'raises an error if @service is nil' do
-        gateway.instance_variable_set(:@service, nil) # Simulate @service not being set
+        gateway.instance_variable_set(:@service, nil)
         expect(mock_logger).to receive(:warn).with('Attempted to list videos without prior authentication.')
-        expect { gateway.list_videos(options: {}) }.to raise_error('Authentication required before listing videos. Please run the auth command.')
+        expect { gateway.list_videos }.to raise_error('Authentication required before listing videos. Please run the auth command.')
       end
 
       it 'raises an error if @service.authorization is nil' do
         allow(mock_youtube_service).to receive(:authorization).and_return(nil)
-        # @service is already set with mock_youtube_service in the main before block for this describe
         expect(mock_logger).to receive(:warn).with('Attempted to list videos without prior authentication.')
-        expect { gateway.list_videos(options: {}) }.to raise_error('Authentication required before listing videos. Please run the auth command.')
+        expect { gateway.list_videos }.to raise_error('Authentication required before listing videos. Please run the auth command.')
       end
 
       it 'raises an error if @service.authorization.access_token is nil' do
-        # Ensure the authorization double itself is not nil, but its access_token is.
-        # Use Google::Auth::UserRefreshCredentials as it's the class that has access_token
         auth_double_no_token = instance_double(Google::Auth::UserRefreshCredentials, access_token: nil)
         allow(mock_youtube_service).to receive(:authorization).and_return(auth_double_no_token)
-        # @service is already set
         expect(mock_logger).to receive(:warn).with('Attempted to list videos without prior authentication.')
-        expect { gateway.list_videos(options: {}) }.to raise_error('Authentication required before listing videos. Please run the auth command.')
+        expect { gateway.list_videos }.to raise_error('Authentication required before listing videos. Please run the auth command.')
+      end
+    end
+
+    context 'when fetching channel details fails or returns no valid data' do
+      it 'logs an error and returns empty if list_channels returns no items' do
+        expect(mock_youtube_service).to receive(:list_channels)
+          .with('contentDetails', mine: true)
+          .and_return(empty_channel_response)
+        expect(mock_logger).to receive(:error).with('Could not find YouTube channel for the authenticated user.')
+        expect(gateway.list_videos(options: options)).to eq([])
+      end
+
+      it 'logs an error and returns empty if uploads_playlist_id is not found' do
+        expect(mock_youtube_service).to receive(:list_channels)
+          .with('contentDetails', mine: true)
+          .and_return(channel_response_no_uploads_id) # Response where uploads ID is missing
+        expect(mock_logger).to receive(:error).with('Could not find uploads playlist ID for the user.')
+        expect(gateway.list_videos(options: options)).to eq([])
+      end
+
+      it 'handles ClientError from list_channels and returns empty' do
+        expect(mock_youtube_service).to receive(:list_channels)
+          .with('contentDetails', mine: true)
+          .and_raise(Google::Apis::ClientError.new('Channel API error'))
+        expect(mock_logger).to receive(:error).with('Google API Client Error while fetching channel details or playlist items: Channel API error')
+        expect(gateway.list_videos(options: options)).to eq([])
+      end
+
+      it 're-raises AuthorizationError from list_channels' do
+        expect(mock_youtube_service).to receive(:list_channels)
+          .with('contentDetails', mine: true)
+          .and_raise(Google::Apis::AuthorizationError.new('Channel Auth error'))
+        expect(mock_logger).to receive(:error).with('Google API Authorization Error while fetching channel details or playlist items: Channel Auth error')
+        expect { gateway.list_videos(options: options) }.to raise_error(Google::Apis::AuthorizationError, 'Channel Auth error')
+      end
+    end
+
+    context 'when fetching playlist items fails or returns no items' do
+      before do # Common setup: list_channels succeeds
+        allow(mock_youtube_service).to receive(:list_channels)
+          .with('contentDetails', mine: true)
+          .and_return(channel_response)
+      end
+
+      it 'logs a message and returns empty if list_playlist_items returns no items' do
+        expect(mock_youtube_service).to receive(:list_playlist_items)
+          .with('snippet', playlist_id: mock_uploads_playlist_id, max_results: max_results_option, page_token: page_token_option)
+          .and_return(empty_playlist_items_response)
+        expect(mock_logger).to receive(:info).with("No video items found in playlist: #{mock_uploads_playlist_id}")
+        expect(gateway.list_videos(options: options)).to eq([])
+      end
+
+      it 'handles ClientError from list_playlist_items and returns empty' do
+        expect(mock_youtube_service).to receive(:list_playlist_items)
+          .with('snippet', playlist_id: mock_uploads_playlist_id, max_results: max_results_option, page_token: page_token_option)
+          .and_raise(Google::Apis::ClientError.new('Playlist API error'))
+        expect(mock_logger).to receive(:error).with('Google API Client Error while fetching channel details or playlist items: Playlist API error')
+        expect(gateway.list_videos(options: options)).to eq([])
+      end
+
+      it 're-raises AuthorizationError from list_playlist_items' do
+        expect(mock_youtube_service).to receive(:list_playlist_items)
+          .with('snippet', playlist_id: mock_uploads_playlist_id, max_results: max_results_option, page_token: page_token_option)
+          .and_raise(Google::Apis::AuthorizationError.new('Playlist Auth error'))
+        expect(mock_logger).to receive(:error).with('Google API Authorization Error while fetching channel details or playlist items: Playlist Auth error')
+        expect { gateway.list_videos(options: options) }.to raise_error(Google::Apis::AuthorizationError, 'Playlist Auth error')
+      end
+    end
+
+    context 'when API calls are successful and items are mapped' do
+      before do
+        allow(mock_youtube_service).to receive(:list_channels)
+          .with('contentDetails', mine: true)
+          .and_return(channel_response)
+        allow(mock_youtube_service).to receive(:list_playlist_items)
+          .with('snippet', playlist_id: mock_uploads_playlist_id, max_results: max_results_option, page_token: page_token_option)
+          .and_return(playlist_items_response) # Contains playlist_item1
+      end
+
+      it 'maps playlist items to VideoListItem entities' do
+        video_list_items = gateway.list_videos(options: options)
+        expect(video_list_items).to be_an(Array)
+        expect(video_list_items.size).to eq(1)
+
+        mapped_item = video_list_items.first
+        expect(mapped_item).to be_a(Entities::VideoListItem)
+        expect(mapped_item.id).to eq(playlist_item1_video_id)
+        expect(mapped_item.title).to eq(playlist_item1_title)
+        expect(mapped_item.youtube_url).to eq("https://www.youtube.com/watch?v=#{playlist_item1_video_id}")
+        expect(mapped_item.published_at).to eq(playlist_item1_published_at_time)
+        expect(mapped_item.thumbnail_url).to eq(playlist_item1_thumb_url)
+
+        expect(mock_logger).to have_received(:info).with("Successfully fetched uploads playlist ID: #{mock_uploads_playlist_id}")
+        expect(mock_logger).to have_received(:info).with("Fetching playlist items from playlist ID: #{mock_uploads_playlist_id} with max_results: #{max_results_option}, page_token: #{page_token_option}")
+        expect(mock_logger).to have_received(:info).with("Successfully fetched 1 video items from playlist: #{mock_uploads_playlist_id}")
+        expect(mock_logger).to have_received(:info).with("Mapped 1 items to VideoListItem entities.")
+      end
+
+      it 'uses default max_results (25) if not provided in options' do
+         # Expect list_playlist_items to be called with default max_results
+        expect(mock_youtube_service).to receive(:list_playlist_items)
+          .with('snippet', playlist_id: mock_uploads_playlist_id, max_results: 25, page_token: nil) # page_token is nil as not in options for this test
+          .and_return(playlist_items_response)
+        gateway.list_videos(options: {}) # Call with empty options
+      end
+    end
+
+    context 'with malformed playlist items' do
+      before do
+        allow(mock_youtube_service).to receive(:list_channels)
+          .with('contentDetails', mine: true)
+          .and_return(channel_response)
+      end
+
+      it 'skips items with missing video_id and logs a warning' do
+        response_with_malformed = Google::Apis::YoutubeV3::ListPlaylistItemsResponse.new # Corrected
+        response_with_malformed.items = [playlist_item1, playlist_item_malformed_video_id]
+        allow(mock_youtube_service).to receive(:list_playlist_items).and_return(response_with_malformed)
+
+        expect(mock_logger).to receive(:warn).with("Skipping playlist item due to missing snippet, resource_id, or video_id. Item ID: #{playlist_item_malformed_video_id.id}")
+
+        video_list_items = gateway.list_videos(options: options)
+        expect(video_list_items.size).to eq(1) # Only playlist_item1 should be mapped
+        expect(video_list_items.first.id).to eq(playlist_item1_video_id)
+      end
+
+      it 'handles unparseable published_at dates and logs a warning' do
+        response_with_bad_date = Google::Apis::YoutubeV3::ListPlaylistItemsResponse.new # Corrected
+        response_with_bad_date.items = [playlist_item_unparseable_date]
+        allow(mock_youtube_service).to receive(:list_playlist_items).and_return(response_with_bad_date)
+
+        # Adjust expected message to match Time.parse's actual error for this input
+        expected_error_message = "no time information in \"Definitely not a date\""
+        expect(mock_logger).to receive(:warn).with("Failed to parse published_at for video ID video_baddate: #{expected_error_message}. Raw value: 'Definitely not a date'")
+
+        video_list_items = gateway.list_videos(options: options)
+        expect(video_list_items.size).to eq(1)
+        expect(video_list_items.first.id).to eq('video_baddate')
+        expect(video_list_items.first.published_at).to be_nil
       end
     end
   end
