@@ -1,0 +1,14 @@
+# Ignore bundler vendor directory
+vendor/bundle
+
+# Ignore other common files
+.bundle/
+log/*
+tmp/*
+*.swp
+*.swo
+*~
+.DS_Store
+config/client_secret.json
+.env
+config/tokens.yaml
