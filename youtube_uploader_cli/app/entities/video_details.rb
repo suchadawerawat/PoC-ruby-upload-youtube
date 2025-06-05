@@ -7,35 +7,57 @@ module Entities
   class VideoDetails
     attr_reader :file_path, :title, :description, :tags, :category_id, :privacy_status
 
+    VALID_PRIVACY_STATUSES = %w[public private unlisted].freeze
+    DEFAULT_PRIVACY_STATUS = 'private'.freeze
+    DEFAULT_TAGS = [].freeze
+
     # @param file_path [String] Absolute path to the video file.
     # @param title [String] Title of the video on YouTube.
     # @param description [String] Description of the video on YouTube.
-    # @param tags [Array<String>] Tags for the video.
     # @param category_id [String] YouTube category ID (e.g., "22" for People & Blogs).
-    # @param privacy_status [String] Privacy status ('public', 'private', 'unlisted').
-    def initialize(file_path:, title:, description:, tags: [], category_id:, privacy_status:)
+    # @param privacy_status [String] Privacy status ('public', 'private', 'unlisted'). Defaults to 'private'.
+    # @param tags [Array<String>] Tags for the video. Defaults to an empty array.
+    def initialize(file_path:, title:, description:, category_id:, privacy_status: DEFAULT_PRIVACY_STATUS, tags: DEFAULT_TAGS)
       @file_path = file_path
       @title = title
       @description = description
-      @tags = tags
       @category_id = category_id
-      @privacy_status = privacy_status
+      @privacy_status = privacy_status || DEFAULT_PRIVACY_STATUS
+      @tags = tags || DEFAULT_TAGS
 
       validate!
     end
 
+    def to_s
+      "VideoDetails(file_path: '#{@file_path}', title: '#{@title}', description: '#{@description}', "\
+      "privacy_status: '#{@privacy_status}', tags: #{@tags.inspect}, category_id: '#{@category_id}')"
+    end
+
+    alias_method :inspect, :to_s
+
     private
 
     def validate!
-      raise ArgumentError, "File path cannot be empty" if file_path.nil? || file_path.strip.empty?
-      raise ArgumentError, "Title cannot be empty" if title.nil? || title.strip.empty?
-      # Description can be empty
-      raise ArgumentError, "Category ID cannot be empty" if category_id.nil? || category_id.strip.empty?
-      raise ArgumentError, "Privacy status cannot be empty" if privacy_status.nil? || privacy_status.strip.empty?
-      unless %w[public private unlisted].include?(privacy_status)
-        raise ArgumentError, "Privacy status must be one of: public, private, unlisted"
+      if @file_path.nil? || @file_path.strip.empty?
+        raise ArgumentError, "File path cannot be blank"
       end
-      raise ArgumentError, "Tags must be an array" unless tags.is_a?(Array)
+      # Title can be empty according to YouTube, but let's assume we want it for our app
+      if @title.nil? || @title.strip.empty?
+        raise ArgumentError, "Title cannot be blank"
+      end
+      # Description can be blank.
+      if @category_id.nil? || @category_id.strip.empty?
+        raise ArgumentError, "Category ID cannot be blank"
+      end
+      unless VALID_PRIVACY_STATUSES.include?(@privacy_status)
+        raise ArgumentError, "Privacy status must be one of: #{VALID_PRIVACY_STATUSES.join(', ')}. Got: '#{@privacy_status}'"
+      end
+      unless @tags.is_a?(Array)
+        raise ArgumentError, "Tags must be an array. Got: #{@tags.class}"
+      end
+      if @tags.any? { |tag| !tag.is_a?(String) }
+        raise ArgumentError, "All tags must be strings."
+      end
     end
   end
 end
