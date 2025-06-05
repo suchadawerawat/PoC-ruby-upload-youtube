@@ -228,9 +228,13 @@ default_user: !ruby/object:Google::Auth::UserRefreshCredentials
         expected_parts = 'snippet,player,status'
         # Default max_results in implementation is 25, but test is for 10
 
-        expect(mock_youtube_service).to receive(:list_videos)
-          .with(expected_parts, my_videos: true, max_results: 10, page_token: nil)
-          .and_return(api_response)
+        expect(mock_youtube_service).to receive(:list_videos) do |part, opts|
+          expect(part).to eq(expected_parts)
+          expect(opts).to include(max_results: 10)
+          expect(opts).not_to include(:my_videos) # Check that :my_videos is not present
+          expect(opts).not_to include(:mine) # Explicitly check for :mine as well
+          api_response # return value
+        end
 
         videos = gateway.list_videos(options: { max_results: 10 })
 
@@ -244,17 +248,26 @@ default_user: !ruby/object:Google::Auth::UserRefreshCredentials
       end
 
       it 'uses provided max_results (implementation default is 25) and page_token' do
-        expect(mock_youtube_service).to receive(:list_videos)
-          .with('snippet,player,status', my_videos: true, max_results: 5, page_token: 'nextPage123')
-          .and_return(double('Google::Apis::YoutubeV3::ListVideoResponse', items: [], next_page_token: nil))
+        expect(mock_youtube_service).to receive(:list_videos) do |part, opts|
+          expect(part).to eq('snippet,player,status')
+          expect(opts).to include(max_results: 5, page_token: 'nextPage123')
+          expect(opts).not_to include(:my_videos)
+          expect(opts).not_to include(:mine)
+          double('Google::Apis::YoutubeV3::ListVideoResponse', items: [], next_page_token: nil) # return value
+        end
 
         gateway.list_videos(options: { max_results: 5, page_token: 'nextPage123' })
       end
 
       it 'uses default max_results of 25 if not provided' do
-        expect(mock_youtube_service).to receive(:list_videos)
-          .with('snippet,player,status', my_videos: true, max_results: 25, page_token: nil)
-          .and_return(double('Google::Apis::YoutubeV3::ListVideoResponse', items: [], next_page_token: nil))
+        expect(mock_youtube_service).to receive(:list_videos) do |part, opts|
+          expect(part).to eq('snippet,player,status')
+          expect(opts).to include(max_results: 25)
+          expect(opts).not_to include(:my_videos)
+          expect(opts).not_to include(:mine)
+          expect(opts).to include(page_token: nil) # page_token should be present and nil
+          double('Google::Apis::YoutubeV3::ListVideoResponse', items: [], next_page_token: nil) # return value
+        end
         gateway.list_videos(options: {}) # No max_results here
       end
 
