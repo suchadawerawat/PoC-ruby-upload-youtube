@@ -152,23 +152,83 @@ module Gateways
         raise 'Authentication required before listing videos. Please run the auth command.'
       end
 
+      # Options for fetching playlist items
       max_results = options.fetch(:max_results, 25).to_i
       page_token = options[:page_token]
 
       begin
-        response = @service.list_videos('snippet,player,status', mine: true, max_results: max_results, page_token: page_token)
+        @logger.info('Fetching YouTube channel details to find uploads playlist...')
+        channel_response = @service.list_channels('contentDetails', mine: true)
 
-        return [] if response.items.nil? || response.items.empty?
+        if channel_response.items.nil? || channel_response.items.empty?
+          @logger.error('Could not find YouTube channel for the authenticated user.')
+          return []
+        end
 
-        response.items.map do |item|
-          video_id = item.id
+        channel_item = channel_response.items.first
+        uploads_playlist_id = nil
+
+        if channel_item &&
+           channel_item.content_details &&
+           channel_item.content_details.related_playlists &&
+           (playlist_id_val = channel_item.content_details.related_playlists.uploads) &&
+           !playlist_id_val.empty?
+          uploads_playlist_id = playlist_id_val
+        end
+
+        unless uploads_playlist_id
+          @logger.error('Could not find uploads playlist ID for the user.')
+          return []
+        end
+
+        @logger.info("Successfully fetched uploads playlist ID: #{uploads_playlist_id}")
+
+        # Now, fetch items from this playlist
+        @logger.info("Fetching playlist items from playlist ID: #{uploads_playlist_id} with max_results: #{max_results}, page_token: #{page_token || 'N/A'}")
+        playlist_items_response = @service.list_playlist_items(
+          'snippet', # Part
+          playlist_id: uploads_playlist_id,
+          max_results: max_results,
+          page_token: page_token
+        )
+
+        if playlist_items_response.items.nil? || playlist_items_response.items.empty?
+          @logger.info("No video items found in playlist: #{uploads_playlist_id}")
+          return []
+        end
+
+        @logger.info("Successfully fetched #{playlist_items_response.items.count} video items from playlist: #{uploads_playlist_id}")
+
+        video_list_items = playlist_items_response.items.map do |item|
+          # Ensure snippet and resource_id are present
+          unless item.snippet && item.snippet.resource_id && item.snippet.resource_id.video_id
+            @logger.warn("Skipping playlist item due to missing snippet, resource_id, or video_id. Item ID: #{item.id if item}")
+            next nil
+          end
+
+          video_id = item.snippet.resource_id.video_id
           title = item.snippet.title
-          # Construct YouTube URL. item.player.embed_html gives an iframe, not a direct URL.
-          # A direct URL is usually https://www.youtube.com/watch?v=VIDEO_ID
           youtube_url = "https://www.youtube.com/watch?v=#{video_id}"
+
           published_at_str = item.snippet.published_at
-          published_at = Time.parse(published_at_str) if published_at_str
-          thumbnail_url = item.snippet.thumbnails&.default&.url # Or 'medium' or 'high'
+          published_at = nil
+          if published_at_str
+            begin
+              published_at = Time.parse(published_at_str)
+            rescue ArgumentError => e
+              @logger.warn("Failed to parse published_at for video ID #{video_id}: #{e.message}. Raw value: '#{published_at_str}'")
+            end
+          end
+
+          # Safely access thumbnails, preferring medium, then default
+          thumbnail_url = nil
+          if item.snippet.thumbnails
+            if item.snippet.thumbnails.medium
+              thumbnail_url = item.snippet.thumbnails.medium.url
+            elsif item.snippet.thumbnails.default
+              thumbnail_url = item.snippet.thumbnails.default.url
+            end
+          end
 
           Entities::VideoListItem.new(
             id: video_id,
@@ -177,19 +237,22 @@ module Gateways
             published_at: published_at,
             thumbnail_url: thumbnail_url
           )
-        end
+        end.compact # Remove any nil items that were skipped
+
+        @logger.info("Mapped #{video_list_items.count} items to VideoListItem entities.")
+        return video_list_items
+
       rescue Google::Apis::ClientError => e
-        # Handle API client errors (e.g., quota exceeded, bad request)
-        @logger.error("Google API Client Error while listing videos: #{e.message}")
+        @logger.error("Google API Client Error while fetching channel details or playlist items: #{e.message}")
         # Depending on desired behavior, could return empty array or re-raise
-        [] # Return empty for now on client errors
+        return [] # Return empty for now on client errors
       rescue Google::Apis::AuthorizationError => e
-        # Handle authorization errors specifically
-        @logger.error("Google API Authorization Error while listing videos: #{e.message}")
+        @logger.error("Google API Authorization Error while fetching channel details or playlist items: #{e.message}")
         raise # Re-raise auth errors as they are critical
       rescue StandardError => e
-        @logger.error("An unexpected error occurred while listing videos: #{e.message}")
-        [] # Return empty for other unexpected errors
+        @logger.error("An unexpected error occurred while fetching channel details or playlist items: #{e.message}")
+        # Optionally log backtrace: @logger.debug(e.backtrace.join("\n"))
+        return [] # Return empty for other unexpected errors
       end
     end
 
