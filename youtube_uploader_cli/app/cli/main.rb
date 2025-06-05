@@ -164,7 +164,7 @@ module Cli
         else
           puts "Your Videos:"
           videos.each_with_index do |video, index|
-            puts "\#{index + 1}. \#{video.title} - \#{video.youtube_url} (Published: \#{video.published_at&.strftime('%Y-%m-%d') || 'N/A'})"
+            puts "#{index + 1}. #{video.title} - #{video.youtube_url} (Published: #{video.published_at&.strftime('%Y-%m-%d') || 'N/A'})"
           end
         end
       rescue StandardError => e
