@@ -6,7 +6,7 @@ A Ruby CLI tool to upload videos to YouTube and log the uploads.
 
 This project follows the principles of **Clean Architecture** to ensure a separation of concerns, testability, and adaptability. The main layers are:
 
-\`\`\`mermaid
+```mermaid
 graph TD
     subgraph "Frameworks & Drivers (Outer Layer)"
         A1["CLI (Thor)"]
@@ -70,7 +70,7 @@ graph TD
     style D2 fill:#9fc,stroke:#333,stroke-width:2px
 
     linkStyle default interpolate basis
-\`\`\`
+```
 
 **Key Principles:**
 
