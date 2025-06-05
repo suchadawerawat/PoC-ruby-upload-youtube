@@ -9,6 +9,27 @@ This guide provides solutions to common issues and debugging steps for the YouTu
 - **Cause**: This was due to an incorrect parameter being used for the YouTube Data API in the `list_videos` method. The parameter `my_videos: true` was used instead of the correct `mine: true`.
 - **Solution**: This issue has been fixed in recent versions of the script. If you encounter this, ensure your script is up-to-date. The fix involves changing `my_videos: true` to `mine: true` in the `list_videos` method within the `youtube_uploader_cli/app/gateways/cli_youtube_service_gateway.rb` file.
 
+### Issues with Listing Videos (`youtube_upload list`) - Post-Refactor
+
+If you encounter problems with the `youtube_upload list` command after recent updates, refer to these points. These supersede the older "unknown keyword: :my_videos" issue for current versions.
+
+#### 1. Symptom: API Error - `missingRequiredParameter: No filter selected. Expected one of: myRating, id, chart`
+*   **Context**: This error might have occurred during earlier development stages or if the code was manually altered in a way that removed the necessary API call parameters.
+*   **Cause**: The YouTube Data API's `videos.list` endpoint (which was initially used) requires a specific filter. The direct `mine=true` parameter, while correct for the API's logic, was not supported as a keyword by the Ruby client library's `list_videos` method.
+*   **Current Solution**: The application has been significantly refactored to list videos by:
+    1.  First, fetching the authenticated user's unique "uploads" playlist ID via the `channels.list` API endpoint (using `mine: true`, which *is* supported here).
+    2.  Then, retrieving video details from this specific playlist using the `playlistItems.list` API endpoint.
+    This two-step process correctly targets the user's own videos and uses supported methods of the client library. If you see this error, it implies a regression or modification away from this current two-step approach.
+
+#### 2. Symptom: Ruby Error - `ArgumentError: unknown keyword: :mine` when calling `service.list_videos`
+*   **Context**: This error was encountered during development when attempting to use `mine: true` as a direct keyword argument with the `service.list_videos` method.
+*   **Cause**: The version of the `google-apis-youtube_v3` Ruby client library in use does not define `mine` as a keyword argument for its `list_videos` method.
+*   **Resolution**: This direct approach was abandoned. The current solution (fetching uploads playlist via `channels.list` and then items via `playlistItems.list`) avoids this issue by using methods and parameters supported by the client library.
+
+#### 3. Symptom: Output shows `\#{index + 1}. \#{video.title}...` instead of actual video data
+*   **Cause**: A formatting issue in the command-line display logic within `Cli::Main#list`. Unnecessary backslash characters (`\`) were escaping the `#{...}` Ruby string interpolation sequences, causing them to be printed literally.
+*   **Solution**: This has been corrected by removing the errant backslashes in the `puts` statement. The application should now display video details correctly. If you encounter this, ensure you have the latest version of `youtube_uploader_cli/app/cli/main.rb`.
+
 ### Issue: Authentication Problems (`youtube_upload auth`)
 - **Symptom**: Difficulty authenticating with Google, errors related to `client_secret.json` or `tokens.yaml`, or messages like "Authentication failed: Consent denied by user," "Could not connect to Google services," or "Invalid grant."
 - **Solution**:
@@ -70,4 +91,3 @@ This guide provides solutions to common issues and debugging steps for the YouTu
 - **Video Processing Issues on YouTube's Side**:
     - **Symptom**: The CLI reports a successful upload (video ID is returned), but the video shows errors or isn't processed correctly on YouTube.
     - **Solution**: This is usually outside the CLI's control. Check the video status directly on YouTube. Issues could be due to video content, format specifics not fully compatible, or temporary YouTube processing delays.
-```
