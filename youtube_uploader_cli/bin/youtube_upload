@@ -1,0 +1,14 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Add lib to load path
+$LOAD_PATH.unshift(File.expand_path('../lib', __dir__))
+# Add app to load path for easier requires
+$LOAD_PATH.unshift(File.expand_path('../app', __dir__))
+
+require 'cli/main' # Path to our Thor class
+
+# Ensure .env file is loaded if it exists
+require 'dotenv/load'
+
+Cli::Main.start(ARGV)
