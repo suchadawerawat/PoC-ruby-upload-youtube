@@ -156,7 +156,7 @@ module Gateways
       page_token = options[:page_token]
 
       begin
-        response = @service.list_videos('snippet,player,status', max_results: max_results, page_token: page_token)
+        response = @service.list_videos('snippet,player,status', mine: true, max_results: max_results, page_token: page_token)
 
         return [] if response.items.nil? || response.items.empty?
 
