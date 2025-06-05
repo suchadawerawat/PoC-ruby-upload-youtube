@@ -187,4 +187,55 @@ To set up your local environment:
 3.  **Customize values:** Adjust the values in your `.env` file as needed for your setup. For example, you might set `GOOGLE_CLIENT_SECRET_PATH` if your client secret is not at `config/client_secret.json`, or `YOUTUBE_TOKENS_PATH` if you want to store tokens elsewhere.
 
 The application uses the `dotenv` gem to automatically load these variables when it starts.
-The `.env.example` file provides a template of all the environment variables the application recognizes.
+The `.env.example` file provides a template of all the environment variables the application recognizes:
+
+*   `GOOGLE_CLIENT_SECRET_PATH`: Path to your Google OAuth 2.0 client secret JSON file. Default: `config/client_secret.json`.
+*   `YOUTUBE_LOG_FILE_PATH`: Path where the CSV log file for uploads will be stored. Default: `log/upload_log.csv`. (Note: This can also be overridden by the `--log-path` option in the `upload` command).
+*   `YOUTUBE_APP_NAME`: Application name used for YouTube API requests. Default: `Ruby YouTube Uploader CLI`.
+*   `YOUTUBE_TOKENS_PATH`: Path to store the OAuth 2.0 access and refresh tokens. Default: `config/tokens.yaml`.
+*   `YOUTUBE_UPLOADER_LOG_LEVEL`: Sets the logging level for the application.
+    *   Purpose: Controls the verbosity of log output.
+    *   Possible Values: `DEBUG`, `INFO`, `WARN`, `ERROR`.
+    *   Default: `INFO` (if the variable is not set or an invalid value is provided).
+    *   Example: `YOUTUBE_UPLOADER_LOG_LEVEL=DEBUG` for more detailed output.
+
+## Debugging
+
+If you encounter issues while using the YouTube Uploader CLI, here are some steps to help diagnose the problem:
+
+### 1. Check Environment Variables
+
+*   **Verify `.env` File**: Ensure you have a `.env` file in the project root (`youtube_uploader_cli/.env`). If not, copy it from `.env.example` and customize it.
+*   **Client Secret Path**: Double-check the `GOOGLE_CLIENT_SECRET_PATH` in your `.env` file. Make sure it correctly points to your `client_secret.json` file. The default is `config/client_secret.json`. Ensure the JSON file itself is valid and obtained from the Google Cloud Console.
+
+### 2. Enable Detailed Logging
+
+*   **Set Log Level to DEBUG**: To get the most detailed log output from the application, set the `YOUTUBE_UPLOADER_LOG_LEVEL` environment variable in your `.env` file:
+    ```
+    YOUTUBE_UPLOADER_LOG_LEVEL=DEBUG
+    ```
+*   **Log Output**: Application logs (controlled by `YOUTUBE_UPLOADER_LOG_LEVEL`) are sent to STDOUT (your console). When set to `DEBUG`, this will include detailed information about gateway operations, API calls (if implemented in gateways), and use case execution steps.
+
+### 3. Authentication Issues (`youtube_upload auth`)
+
+*   **Re-run Authentication**: Try running `youtube_upload auth` again. Follow the on-screen prompts carefully.
+*   **Check Console Output**: Look for any error messages or specific instructions printed in the console during the `auth` command.
+*   **Token File**:
+    *   The application stores authentication tokens in the file specified by `YOUTUBE_TOKENS_PATH` (default: `config/tokens.yaml`).
+    *   If you suspect corrupted tokens, you can try deleting this file and re-running `youtube_upload auth` to start the authentication process from scratch.
+
+### 4. Upload Issues (`youtube_upload upload ...`)
+
+*   **Check Console Output**: When an upload fails, the CLI should print an error message to the console. This is often the first indicator of what went wrong.
+*   **Consult CSV Audit Log**:
+    *   The application maintains a CSV log of all upload attempts. This log is stored at the path specified by `YOUTUBE_LOG_FILE_PATH` in your `.env` file (default: `logs/upload_log.csv`), or the path provided via the `--log-path` option during the `upload` command.
+    *   This log records the `video_title`, `file_path`, `youtube_url` (if successful), `upload_date`, `status` ('SUCCESS' or 'FAILURE'), and `details` (which includes the YouTube Video ID on success or an error message on failure). Review this log for specific error messages related to past uploads.
+
+### 5. Consult Detailed Application Logs
+
+*   As mentioned in "Enable Detailed Logging," setting `YOUTUBE_UPLOADER_LOG_LEVEL=DEBUG` is crucial.
+*   These detailed logs (printed to STDOUT) can provide insights into:
+    *   The data being sent to the YouTube API (e.g., video metadata).
+    *   Responses received from the YouTube API (e.g., error messages, status codes).
+    *   The flow of data through different components of the application.
+    *   Specific error messages from gateways (like `CliYouTubeServiceGateway` or `CsvLogPersistenceGateway`).
