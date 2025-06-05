@@ -145,7 +145,7 @@ module Gateways
       # However, the current class structure implies `authenticate` provides it.
       # Let's refine this: the method should expect `service` to be an instance variable `@service`.
 
-      unless @service && @service.authorization.access_token
+      unless @service && @service.authorization && @service.authorization.access_token
         # This would ideally re-use the authentication logic or ensure it has run.
         # For now, raising an error indicating prerequisite.
         @logger.warn('Attempted to list videos without prior authentication.')
@@ -156,7 +156,7 @@ module Gateways
       page_token = options[:page_token]
 
       begin
-        response = @service.list_videos('snippet,player,status', mine: true, max_results: max_results, page_token: page_token)
+        response = @service.list_videos('snippet,player,status', my_videos: true, max_results: max_results, page_token: page_token)
 
         return [] if response.items.nil? || response.items.empty?
 
